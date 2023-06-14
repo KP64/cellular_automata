@@ -9,7 +9,6 @@
     clippy::nursery,
     // clippy::cargo
 )]
-#![allow(unused)]
 
 use itertools::iproduct;
 use rand::Rng;
@@ -78,57 +77,31 @@ impl Iterator for Automaton {
 
         let mut temp_grid = self.grid.clone();
 
-        // ? Stop simulation if all cells are dead
-        if !self
-            .grid
-            .iter()
-            .any(|col| col.iter().any(|cell| *cell != Cell::Dead))
-        {
-            return None;
-        }
-
         for (row, col) in iproduct!(0..self.row_count, 0..self.col_count) {
-            let cell = &mut self.grid[row][col];
-            match *cell {
+            // TODO: Change grid_traverser to the Von Neumann algorithm when it is selected
+            let grid_traverser = iproduct!(
+                row.saturating_sub(1)..=row.saturating_add(1).min(self.row_count - 1),
+                col.saturating_sub(1)..=col.saturating_add(1).min(self.col_count - 1)
+            )
+            .filter(|&(irow, icol)| irow != row || icol != col)
+            .filter_map(|(irow, icol)| self.grid[irow].get(icol));
+
+            //TODO: Add Rules
+            let cell = &self.grid[row][col];
+            match cell {
                 Cell::Dead => {
-                    let mut count_alive = 0;
+                    let count_alive: usize = grid_traverser
+                        .map(|cell| usize::from(*cell != Cell::Dead))
+                        .sum();
 
-                    for (irow, icol) in iproduct!(
-                        row.saturating_sub(1)..=(row + 1).min(self.row_count - 1),
-                        col.saturating_sub(1)..=(col + 1).min(self.col_count - 1)
-                    ) {
-                        if irow == row && icol == col {
-                            continue;
-                        }
-
-                        let cell = &mut self.grid[irow][icol];
-                        match cell {
-                            Cell::Dead => {}
-                            _ => count_alive += 1,
-                        }
-                    }
-
-                    if count_alive > 2 && count_alive < 4 {
+                    if count_alive == 3 {
                         temp_grid[row][col] = Cell::Alive;
                     }
                 }
                 Cell::Alive => {
-                    let mut count_dead = 0;
-
-                    for (irow, icol) in iproduct!(
-                        row.saturating_sub(1)..=(row + 1).min(self.row_count - 1),
-                        col.saturating_sub(1)..=(col + 1).min(self.col_count - 1)
-                    ) {
-                        if irow == row && icol == col {
-                            continue;
-                        }
-
-                        let cell = &mut self.grid[irow][icol];
-                        match cell {
-                            Cell::Dead => {}
-                            _ => count_dead += 1,
-                        }
-                    }
+                    let count_dead: usize = grid_traverser
+                        .map(|cell| usize::from(*cell == Cell::Dead))
+                        .sum();
 
                     if count_dead > 4 {
                         temp_grid[row][col] = Cell::Dying {
@@ -160,7 +133,7 @@ impl Iterator for Automaton {
 impl fmt::Display for Automaton {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // ~ PLAIN TEXT
-        /*         writeln!(f, "NeighborhoodType: {:?}", self.neighborhood_type)?;
+        /* writeln!(f, "NeighborhoodType: {:?}", self.neighborhood_type)?;
         writeln!(f, "Generation: {}", self.generation.0)?;
         writeln!(f, "Grid:")?;
         for idx in 0..self.col_count {
@@ -173,28 +146,25 @@ impl fmt::Display for Automaton {
                 write!(f, "{:<8}, ", format!("{}", col))?;
             }
             writeln!(f, "]")?;
-        }
-        Ok(()) */
+        } */
         // ~ UNICODE
         writeln!(f, "NeighborhoodType: {:?}", self.neighborhood_type)?;
         writeln!(f, "Generation: {}", self.generation.0)?;
         writeln!(f, "Grid:")?;
-        for idx in 0..self.col_count {
-            write!(f, "  {idx:>2}")?;
-        }
-        writeln!(f)?;
-        for (idx, row) in self.grid.iter().enumerate() {
-            write!(f, "{idx}[")?;
+        for row in &self.grid {
+            write!(f, "[")?;
             for cell in row {
                 match cell {
-                    Cell::Dead => write!(f, "\u{2B1B}, "),
-                    Cell::Alive => write!(f, "\u{2B1C}, "),
-                    Cell::Dying { ticks_till_death } => write!(f, "\u{1F7EB}, "),
+                    Cell::Dead => write!(f, "⬛"),
+                    Cell::Alive => write!(f, "⬜"),
+                    Cell::Dying {
+                        ticks_till_death: _,
+                    } => write!(f, "🟫"),
                 }?;
-                /* write!(f, "{:<8}, ", format!("{}", col))?; */
             }
             writeln!(f, "]")?;
         }
+
         Ok(())
     }
 }
@@ -227,17 +197,14 @@ impl fmt::Display for Cell {
 }
 
 fn main() {
-    let (rows, cols) = (10, 10);
-    /* let gen_limit = 40; */
-    let automaton = Automaton::new(rows, cols);
+    // ~ OPTIMAL: (113, 133) => 1080px
+    let (rows, cols) = (50, 20);
 
-    println!("{automaton}");
-    for (gen, auto) in automaton.enumerate() {
+    let mut rng = rand::thread_rng();
+    let automaton = Automaton::new(rng.gen_range(1..=rows), rng.gen_range(1..=cols));
+
+    for auto in automaton {
         println!("{auto}");
         thread::sleep(Duration::from_secs(1));
-
-        /*         if gen == gen_limit {
-            break;
-        } */
     }
 }
