@@ -35,12 +35,13 @@ struct Automaton {
 }
 
 impl Automaton {
-    fn new(row_count: usize, col_count: usize) -> Self {
+    fn new(row_count: usize, col_count: usize, neighborhood_type: Neighborhood) -> Self {
         let grid = Self::random_population(row_count, col_count);
         Self {
             row_count,
             col_count,
             grid,
+            neighborhood_type,
             ..Default::default()
         }
     }
@@ -78,12 +79,20 @@ impl Iterator for Automaton {
         let mut temp_grid = self.grid.clone();
 
         for (row, col) in iproduct!(0..self.row_count, 0..self.col_count) {
-            // TODO: Change grid_traverser to the Von Neumann algorithm when it is selected
             let grid_traverser = iproduct!(
                 row.saturating_sub(1)..=row.saturating_add(1).min(self.row_count - 1),
                 col.saturating_sub(1)..=col.saturating_add(1).min(self.col_count - 1)
             )
-            .filter(|&(irow, icol)| irow != row || icol != col)
+            .filter(|&(irow, icol)| irow != row || icol != col);
+
+            // ? Casting to Box<Iterator> Necessary to remove unnecessary collecting into a vector for each match arm.
+            let grid_traverser = match self.neighborhood_type {
+                Neighborhood::Moore => Box::new(grid_traverser),
+                Neighborhood::VonNeumann => {
+                    Box::new(grid_traverser.filter(|&(irow, icol)| irow == row || icol == col))
+                        as Box<dyn Iterator<Item = (usize, usize)>>
+                }
+            }
             .filter_map(|(irow, icol)| self.grid[irow].get(icol));
 
             //TODO: Add Rules
@@ -201,7 +210,11 @@ fn main() {
     let (rows, cols) = (50, 20);
 
     let mut rng = rand::thread_rng();
-    let automaton = Automaton::new(rng.gen_range(1..=rows), rng.gen_range(1..=cols));
+    let automaton = Automaton::new(
+        rng.gen_range(1..=rows),
+        rng.gen_range(1..=cols),
+        Neighborhood::VonNeumann,
+    );
 
     for auto in automaton {
         println!("{auto}");
