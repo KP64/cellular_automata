@@ -11,7 +11,7 @@
 )]
 #![allow(unused)]
 
-use itertools::iproduct;
+use itertools::{iproduct, Itertools};
 use rand::Rng;
 use std::{
     fmt,
@@ -35,7 +35,8 @@ impl Generation {
 
 type Grid = Vec<Vec<Cell>>;
 
-#[derive(Debug, Clone)]
+#[derive(typed_builder::TypedBuilder, Debug, Clone)]
+#[builder(field_defaults(default))]
 struct Automaton {
     row_count: usize,
     col_count: usize,
@@ -47,12 +48,12 @@ struct Automaton {
 
 impl Default for Automaton {
     fn default() -> Self {
-        let row_count = 20;
-        let col_count = 20;
+        const ROW_COUNT: usize = 20;
+        const COL_COUNT: usize = 20;
         Self {
-            row_count,
-            col_count,
-            grid: Self::random_population(row_count, col_count),
+            row_count: ROW_COUNT,
+            col_count: COL_COUNT,
+            grid: Self::random_population(ROW_COUNT, COL_COUNT),
             generation: Generation::default(),
             neighborhood_type: Neighborhood::default(),
             rule_set: RuleSet::default(),
@@ -61,32 +62,18 @@ impl Default for Automaton {
 }
 
 impl Automaton {
-    fn new(row_count: usize, col_count: usize, neighborhood_type: Neighborhood) -> Self {
-        let grid = Self::random_population(row_count, col_count);
-        Self {
-            row_count,
-            col_count,
-            grid,
-            neighborhood_type,
-            ..Default::default()
-        }
+    fn random_population(row_count: usize, col_count: usize) -> Grid {
+        (0..row_count)
+            .map(|_| (0..col_count).map(|_| Self::random_cell()).collect())
+            .collect()
     }
 
-    fn random_population(row_count: usize, col_count: usize) -> Grid {
-        let mut rng = rand::thread_rng();
-        (0..row_count)
-            .map(|_| {
-                (0..col_count)
-                    .map(|_| {
-                        if rng.gen_bool(0.5) {
-                            Cell::Alive
-                        } else {
-                            Cell::default()
-                        }
-                    })
-                    .collect()
-            })
-            .collect()
+    fn random_cell() -> Cell {
+        if rand::thread_rng().gen_bool(0.5) {
+            Cell::Alive
+        } else {
+            Cell::default()
+        }
     }
 }
 
@@ -125,7 +112,7 @@ impl Iterator for Automaton {
             match cell {
                 Cell::Dead | Cell::Alive => {
                     let alive_neighbors: usize = grid_traverser
-                        .map(|neighbor| usize::from(*neighbor != Cell::Dead))
+                        .map(|neighbor| usize::from(neighbor.is_alive()))
                         .sum();
 
                     let rule_set = if cell.is_dead() {
@@ -133,14 +120,10 @@ impl Iterator for Automaton {
                     } else {
                         &self.rule_set.alive
                     };
-
-                    for (rule, action) in rule_set {
-                        if rule.check(alive_neighbors, &mut temp_grid[row][col], *action)
-                            == ControlFlow::Break(())
-                        {
-                            break;
-                        }
-                    }
+                    rule_set.iter().any(|(rule, action)| {
+                        rule.check(alive_neighbors, &mut temp_grid[row][col], *action)
+                            .is_break()
+                    });
                 }
                 Cell::Dying { ticks_till_death } => {
                     let new_ticks = ticks_till_death - 1;
@@ -234,7 +217,7 @@ impl Cell {
         matches!(self, Self::Dead)
     }
     const fn is_alive(&self) -> bool {
-        matches!(self, Self::Alive)
+        !self.is_dead()
     }
     const fn is_dying(&self) -> bool {
         matches!(
@@ -252,6 +235,7 @@ impl Cell {
         }
     }
 }
+// TODO: Replace "dying cells" with Dead in order to exactly imitate conways game of life when needed.
 impl From<Action> for Cell {
     fn from(value: Action) -> Self {
         match value {
@@ -312,21 +296,16 @@ enum Rules {
 
 impl Rules {
     fn check(&self, alive_neighbors: usize, cell: &mut Cell, action: Action) -> ControlFlow<()> {
-        match self {
-            Self::Singles(v) => {
-                if v.contains(&alive_neighbors) {
-                    *cell = action.into();
-                    return ControlFlow::Break(());
-                }
-            }
-            Self::Range(r) => {
-                if r.contains(&alive_neighbors) {
-                    *cell = action.into();
-                    return ControlFlow::Break(());
-                }
-            }
+        let mut iterable: Box<dyn Iterator<Item = usize>> = match self {
+            Self::Range(r) => Box::new(r.clone()),
+            Self::Singles(s) => Box::new(s.iter().copied()),
+        };
+
+        if iterable.contains(&alive_neighbors) {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-        ControlFlow::Continue(())
     }
 }
 
@@ -342,8 +321,55 @@ enum Action {
 }
 
 fn main() {
-    for auto in Automaton::default() {
+    let grid = vec![vec![Cell::Dead, Cell::Alive, Cell::Dead]; 3];
+    let automaton = Automaton::builder()
+        .row_count(3)
+        .col_count(3)
+        .grid(grid)
+        .build();
+
+    for auto in automaton {
         println!("{auto}");
         thread::sleep(Duration::from_secs(1));
+    }
+    /* for auto in Automaton::default() {
+        println!("{auto}");
+        thread::sleep(Duration::from_secs(1));
+    } */
+}
+
+// ! THESE TESTS ONLY WORK WHEN THE DYING LOGIC IS SET TO Cell::Dead
+// ! Instead of Cell::dying_cell()
+// ! i.e. WHEN THE AUTOMATON EXACTLY REPRESENTS THE LOGIC OF CONWAYS GAME OF LIFE
+#[cfg(test)]
+mod tests {
+    use crate::{Automaton, Cell, Neighborhood};
+    use std::{thread, time::Duration};
+
+    #[test]
+    fn primitive_test_1() {
+        let grid = vec![vec![Cell::Dead, Cell::Alive, Cell::Dead]; 3];
+        let mut automaton = Automaton::builder()
+            .row_count(3)
+            .col_count(3)
+            .grid(grid.clone())
+            .build();
+
+        assert_eq!(automaton.next().unwrap().grid, grid);
+        assert_ne!(automaton.next().unwrap().grid, grid);
+        assert_eq!(automaton.next().unwrap().grid, grid);
+    }
+    #[test]
+    #[should_panic]
+    fn primitive_test_2() {
+        let grid = vec![vec![Cell::Dead, Cell::Alive, Cell::Dead]; 3];
+        let mut automaton = Automaton::builder()
+            .row_count(3)
+            .col_count(3)
+            .grid(grid.clone())
+            .build();
+
+        assert_eq!(automaton.next().unwrap().grid, grid);
+        assert_eq!(automaton.next().unwrap().grid, grid);
     }
 }

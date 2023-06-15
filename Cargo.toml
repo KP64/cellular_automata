@@ -10,6 +10,7 @@ edition = "2021"
 bevy = { version = "0.10.1", features = ["dynamic_linking"] }
 itertools = "0.10.5"
 rand = "0.8.5"
+typed-builder = "0.14.0"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
