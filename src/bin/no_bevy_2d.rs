@@ -62,12 +62,22 @@ impl Default for Automaton {
 }
 
 impl Automaton {
+    fn new(row_count: usize, col_count: usize, neighborhood_type: Neighborhood) -> Self {
+        let grid = Self::random_population(row_count, col_count);
+        Self {
+            row_count,
+            col_count,
+            grid,
+            neighborhood_type,
+            ..Default::default()
+        }
+    }
+
     fn random_population(row_count: usize, col_count: usize) -> Grid {
         (0..row_count)
             .map(|_| (0..col_count).map(|_| Self::random_cell()).collect())
             .collect()
     }
-
     fn random_cell() -> Cell {
         if rand::thread_rng().gen_bool(0.5) {
             Cell::Alive
@@ -120,6 +130,7 @@ impl Iterator for Automaton {
                     } else {
                         &self.rule_set.alive
                     };
+
                     rule_set.iter().any(|(rule, action)| {
                         rule.check(alive_neighbors, &mut temp_grid[row][col], *action)
                             .is_break()
@@ -217,7 +228,7 @@ impl Cell {
         matches!(self, Self::Dead)
     }
     const fn is_alive(&self) -> bool {
-        !self.is_dead()
+        matches!(self, Self::Alive)
     }
     const fn is_dying(&self) -> bool {
         matches!(
@@ -235,12 +246,11 @@ impl Cell {
         }
     }
 }
-// TODO: Replace "dying cells" with Dead in order to exactly imitate conways game of life when needed.
 impl From<Action> for Cell {
     fn from(value: Action) -> Self {
         match value {
             Action::Live => Self::Alive,
-            Action::Die => Self::dying_cell(),
+            Action::Die => Self::Dead,
         }
     }
 }
@@ -302,6 +312,7 @@ impl Rules {
         };
 
         if iterable.contains(&alive_neighbors) {
+            *cell = action.into();
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
