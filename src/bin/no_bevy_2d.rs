@@ -20,28 +20,15 @@ use std::{
     time::Duration,
 };
 
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-struct Generation(usize);
-
-impl Generation {
-    const fn is_first_generation(self) -> bool {
-        self.0 == 1
-    }
-
-    fn increment(&mut self) {
-        self.0 += 1;
-    }
-}
-
 type Grid = Vec<Vec<Cell>>;
 
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 #[builder(field_defaults(default))]
 struct Automaton {
+    generation: usize,
     row_count: usize,
     col_count: usize,
     grid: Grid,
-    generation: Generation,
     neighborhood_type: Neighborhood,
     rule_set: RuleSet,
 }
@@ -54,7 +41,7 @@ impl Default for Automaton {
             row_count: ROW_COUNT,
             col_count: COL_COUNT,
             grid: Self::random_population(ROW_COUNT, COL_COUNT),
-            generation: Generation::default(),
+            generation: Default::default(),
             neighborhood_type: Neighborhood::default(),
             rule_set: RuleSet::default(),
         }
@@ -62,22 +49,12 @@ impl Default for Automaton {
 }
 
 impl Automaton {
-    fn new(row_count: usize, col_count: usize, neighborhood_type: Neighborhood) -> Self {
-        let grid = Self::random_population(row_count, col_count);
-        Self {
-            row_count,
-            col_count,
-            grid,
-            neighborhood_type,
-            ..Default::default()
-        }
-    }
-
     fn random_population(row_count: usize, col_count: usize) -> Grid {
         (0..row_count)
             .map(|_| (0..col_count).map(|_| Self::random_cell()).collect())
             .collect()
     }
+
     fn random_cell() -> Cell {
         if rand::thread_rng().gen_bool(0.5) {
             Cell::Alive
@@ -91,13 +68,7 @@ impl Iterator for Automaton {
     type Item = Self;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.generation.increment();
-
-        // ~ Is the first Generation considered the "unprocessed" grid or the first "new" generation?
-        // TODO: Confirm right behavior
-        if self.generation.is_first_generation() {
-            return Some(self.clone());
-        }
+        self.generation += 1;
 
         let mut temp_grid = self.grid.clone();
 
@@ -148,7 +119,7 @@ impl Iterator for Automaton {
                 }
             }
         }
-        self.grid = temp_grid.clone();
+        std::mem::swap(&mut self.grid, &mut temp_grid);
 
         Some(Self {
             grid: temp_grid,
@@ -177,7 +148,7 @@ impl fmt::Display for Automaton {
         } */
         // ~ UNICODE
         writeln!(f, "NeighborhoodType: {:?}", self.neighborhood_type)?;
-        writeln!(f, "Generation: {}", self.generation.0)?;
+        writeln!(f, "Generation: {}", self.generation)?;
         writeln!(f, "Grid:")?;
         for row in &self.grid {
             write!(f, "[")?;
@@ -228,7 +199,7 @@ impl Cell {
         matches!(self, Self::Dead)
     }
     const fn is_alive(&self) -> bool {
-        matches!(self, Self::Alive)
+        !self.is_dead()
     }
     const fn is_dying(&self) -> bool {
         matches!(
@@ -246,6 +217,8 @@ impl Cell {
         }
     }
 }
+
+// TODO: Replace "dying cells" with Dead in order to exactly imitate conways game of life when needed.
 impl From<Action> for Cell {
     fn from(value: Action) -> Self {
         match value {
